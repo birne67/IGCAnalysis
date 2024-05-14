@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(name='IGCAnalysis',
-      version='0.7',
+      version='1.0',
       author='Helmut Kindl',
       author_email='hkindl@gmail.com',
       url='https://github.com/birne67/IGCAnalysis',
