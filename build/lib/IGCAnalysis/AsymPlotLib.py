@@ -323,6 +323,7 @@ def mpdf (findstrings, kfindstrings):
                 #Die Spalte Zeit in Datumsformat ändern
                 df['Zeit'] = pd.to_datetime(df['Zeit'],format='%H%M%S')
                 # df['Zeit'] = df['Zeit'].dt.tz_localize('utc').dt.tz_convert('Europe/Berlin')
+                df['Zeit'] = df['Zeit'].dt.tz_localize('utc').dt.tz_convert('US/Central')
                 df_time = df['Zeit']
                 df['Seconds'] = ((df_time.dt.hour)*60+df_time.dt.minute)*60 + df_time.dt.second
         else:
@@ -337,7 +338,8 @@ def mpdf (findstrings, kfindstrings):
         if var == 'Zeit':
                 #Die Spalte Zeit in Datumsformat ändern
                 dfk['Zeit'] = pd.to_datetime(dfk['Zeit'],format='%H%M%S')
-                dfk['Zeit'] = dfk['Zeit'].dt.tz_localize('utc').dt.tz_convert('Europe/Berlin')
+                #dfk['Zeit'] = dfk['Zeit'].dt.tz_localize('utc').dt.tz_convert('Europe/Berlin')
+                dfk['Zeit'] = dfk['Zeit'].dt.tz_localize('utc').dt.tz_convert('US/Central')
                 dfk_time = dfk['Zeit']
                 dfk['Seconds'] = (dfk_time.dt.hour*60+dfk_time.dt.minute)*60 + dfk_time.dt.second
         else:
