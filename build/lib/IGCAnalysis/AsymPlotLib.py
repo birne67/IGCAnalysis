@@ -1,3 +1,5 @@
+# Change Log: 2025-08-16 neue Mittelung nach Type "R" oder "L" eingefügt!  
+
 import numpy as np
 import sys
 import pandas as pd
@@ -51,6 +53,10 @@ def asymplot(filename,l_plt=1,l_suchkr=1,l_wechsel=0,l_web=0):
     aveRK    = np.nan
     np.aveRKw = np.nan
     np.aveLKw = np.nan
+    AOR_ave_RK = np.nan
+    AOR_ave_LK = np.nan
+    np.AOR_ave_RKw  = np.nan
+    np.AOR_ave_LKw  = np.nan
     
     if isinstance(filename, str):
         pass
@@ -102,8 +108,8 @@ def asymplot(filename,l_plt=1,l_suchkr=1,l_wechsel=0,l_web=0):
 
             Kreisengamma,df_Kr,df_Gl,AnzRK, AnzLK                          =  EstimateTrajectoryAngle (BDG,LDG,Height, Sekunden, df2, AOR, l_suchkr, l_wechsel, TRT)
 
-            aveRK, aveLK, np.aveRKw,np.aveLKw, df_Kr, plot_html = AsymPlot(AnzRK,AnzLK,df,df_Kr,filename,hardware, software, FlapSensor, l_plt, l_web)
-
+            aveRK, aveLK, np.aveRKw, np.aveLKw,  AOR_ave_RK, AOR_ave_LK, np.AOR_ave_RKw, np.AOR_ave_LKw, df_Kr, plot_html = \
+                AsymPlot(AnzRK,AnzLK,df,df_Kr,filename,hardware, software, FlapSensor, l_plt, l_web)
             l_hawk = True
         else:
             l_hawk = False
@@ -111,7 +117,7 @@ def asymplot(filename,l_plt=1,l_suchkr=1,l_wechsel=0,l_web=0):
     else:
         l_hawk = False
         
-    return  l_hawk, aveRK, aveLK,  np.aveRKw, np.aveLKw, df_Kr, hardware, software, FlapSensor
+    return  l_hawk, aveRK, aveLK,  np.aveRKw, np.aveLKw,  AOR_ave_RK, AOR_ave_LK, np.AOR_ave_RKw, np.AOR_ave_LKw, df_Kr, hardware, software, FlapSensor
         
         
       
@@ -300,6 +306,13 @@ def readfile(filename):
     
     return findstrings, kfindstrings, hardware, software, FlapSensor
 
+def is_convertible_to_float(value):
+    try:
+        float(value)
+        return True
+    except ValueError:
+        print('Value  (not convertable):', value)
+        return False
 def mpdf (findstrings, kfindstrings):
     
     findstr    = findstrings['findstr']
@@ -328,7 +341,8 @@ def mpdf (findstrings, kfindstrings):
                 df['Seconds'] = ((df_time.dt.hour)*60+df_time.dt.minute)*60 + df_time.dt.second
         else:
             #print('VAR =', var,' Type:', type(var))
-            df[var]=df[var].astype(float)
+           # Check if the value can be converted to float
+            df[var] = df[var].apply(lambda x: float(x) if is_convertible_to_float(x) else 1000)
             if var in findstr:
                 #pos = findstrg.index(var)
                 df[var]=df[var]/findstr_f[findstr.index(var)]
@@ -377,9 +391,9 @@ def CalcTrack (df):
     
     H1 = (df['Longitude'][:]%1e3)/1000
     H2 = np.floor(df['Longitude'][:]%1e5/1000)
-    H2 = (H1+H2)/60;
-    H1 = np.floor(df['Longitude']/1e5);
-    LDG = H1+H2;
+    H2 = (H1+H2)/60
+    H1 = np.floor(df['Longitude']/1e5)
+    LDG = H1+H2
     
     LDG.loc[LDG[df['EastWest']=='W'].dropna().index]=-LDG
     
@@ -778,6 +792,8 @@ def AsymPlot (AnzRK,AnzLK,df,df_Kr,filename,hardware, software, FlapSensor, l_pl
 
     dH_TEK   = np.array([])
     dH_Netto = np.array([])
+    AOR_ave  = np.array([])
+    ENL      = np.array([])
 
     for j in range(0,len(df_Kr['Nr'])):
         a = np.int32(df_Kr['Startzeit'][j])
@@ -786,6 +802,8 @@ def AsymPlot (AnzRK,AnzLK,df,df_Kr,filename,hardware, software, FlapSensor, l_pl
         b = df.loc[(df['Seconds']<=b)].index[-1]
         dH_Netto = np.append(dH_Netto, np.trapz(df['NET'][a:b], x = df['Seconds'][a:b]))
         dH_TEK   = np.append(dH_TEK, np.trapz(df['VAT'][a:b], x = df['Seconds'][a:b]))
+        AOR_ave  = np.append(AOR_ave, np.average(df['AOR'][a:b]))
+        ENL      = np.append(ENL, np.average(df['ENL'][a:b]))
 
     dT = df_Kr['dT'].to_numpy()
     deltaNT = np.divide(np.subtract(dH_TEK,dH_Netto),dT)
@@ -793,10 +811,12 @@ def AsymPlot (AnzRK,AnzLK,df,df_Kr,filename,hardware, software, FlapSensor, l_pl
     df_Kr['dHdT(TEK)']   = dH_TEK/dT
     df_Kr['dHfT(Netto)'] = dH_Netto/dT
     df_Kr['deltaNT']     = deltaNT
+    df_Kr['AOR_ave']     = AOR_ave
+    df_Kr['ENLave']      = ENL
 
 
-    AnzLK = np.delete(AnzLK, -1)
-    AnzRK = np.delete(AnzRK, -1)
+    AnzLK = np.delete(AnzLK, -1)  # letztes Element wird gelöscht!
+    AnzRK = np.delete(AnzRK, -1)  # letztes Element wird gelöscht!
     
     df_Kr['AnzRK']       = AnzRK
     df_Kr['AnzLK']       = AnzLK
@@ -826,12 +846,13 @@ def AsymPlot (AnzRK,AnzLK,df,df_Kr,filename,hardware, software, FlapSensor, l_pl
             # df_Kr['#Thermals'][j]=df_Kr['AnzLK'][j]
             # j=j+1
         
+    df_Kr = df_Kr.drop(df_Kr[df_Kr.ENLave > 50].index)    # Neu 02.09.2024
 
     if l_web==1:
         aveRK, aveLK, plot_html = PlotlyPlot(FlapSensor,filename,hardware,software,AnzRK,AnzLK,deltaNT,df_Kr)
         
     else:
-        aveRK, aveLK = MathPlLibPlot(FlapSensor,filename,hardware,software,AnzRK,AnzLK,deltaNT,df_Kr)
+        aveRK, aveLK, np.aveRKw, np.aveLKw, AOR_ave_RK, AOR_ave_LK, np.AOR_ave_RKw, np.AOR_ave_LKw = MathPlLibPlot(FlapSensor,filename,hardware,software,AnzRK,AnzLK,deltaNT,df_Kr)
         plot_html = np.nan  
 
         if l_plt==1:
@@ -845,7 +866,7 @@ def AsymPlot (AnzRK,AnzLK,df,df_Kr,filename,hardware, software, FlapSensor, l_pl
             savename = f"{(filename.split('.')[0])}{'_py.xlsx'}"
             df_Kr.to_excel(savename)
     
-    return aveRK, aveLK, np.aveRKw, np.aveLKw,  df_Kr, plot_html
+    return aveRK, aveLK, np.aveRKw, np.aveLKw,  AOR_ave_RK, AOR_ave_LK, np.AOR_ave_RKw, np.AOR_ave_LKw, df_Kr, plot_html
 
 
 def MathPlLibPlot(FlapSensor,filename,hardware,software,AnzRK,AnzLK,deltaNT,df_Kr):
@@ -865,6 +886,11 @@ def MathPlLibPlot(FlapSensor,filename,hardware,software,AnzRK,AnzLK,deltaNT,df_K
     ax1.set_title("Asymmetry Plot: " + filename+" (" +hardware+ ", "+ software + FlS + ")", fontsize='large')
     ax1.grid(True)
 
+    # Neu 01.09.2024
+    AnzLK= df_Kr.AnzLK
+    AnzRK= df_Kr.AnzRK
+    deltaNT = df_Kr.deltaNT
+
     ax1.scatter (AnzRK[AnzRK>0],deltaNT[AnzRK>0],color='g', edgecolors='black', label='right circling')
     ax1.scatter (AnzLK[AnzLK>0],deltaNT[AnzLK>0],color='r', edgecolors='black', label='left circling')
     ax1.set_xlabel('No of Circles in Thermals (right and left) / -')
@@ -876,14 +902,40 @@ def MathPlLibPlot(FlapSensor,filename,hardware,software,AnzRK,AnzLK,deltaNT,df_K
 
     aveRK = deltaNT[AnzRK>0].mean()
     aveLK = deltaNT[AnzLK>0].mean()
+    AOR_ave_RK = df_Kr.AOR_ave[AnzRK>0].mean()
+    AOR_ave_LK = df_Kr.AOR_ave[AnzLK>0].mean()
+    
+    h11_RK = df_Kr.AOR_ave[df_Kr.Type=='R'].mean()
+    h11_LK = df_Kr.AOR_ave[df_Kr.Type=='L'].mean()
+    
+    
     ax1.hlines(aveRK, 0, np.max([AnzLK,AnzRK])+1,  linestyle='dashed' ,color='g' , label = 'average right')
     ax1.hlines(aveLK, 0, np.max([AnzLK,AnzRK])+1,  linestyle='dashed' ,color='r' , label = 'average left')
  
     # weighted Average
-    np.aveRKw = (df_Kr['deltaNT'].loc[df_Kr['AnzRK']>0].mul(df_Kr['dT'].loc[df_Kr['AnzRK']>0]))
-    np.aveRKw = np.aveRKw.sum()/df_Kr['dT'].loc[df_Kr['AnzRK']>0].sum()
-    np.aveLKw = (df_Kr['deltaNT'].loc[df_Kr['AnzLK']>0].mul(df_Kr['dT'].loc[df_Kr['AnzLK']>0]))
-    np.aveLKw = np.aveLKw.sum()/df_Kr['dT'].loc[df_Kr['AnzLK']>0].sum()
+    methode = 'Type'  # oder 'Type'  # neu 16.08.2025
+    if (methode=="Anzahl"):
+        np.aveRKw = (df_Kr['deltaNT'].loc[df_Kr['AnzRK']>0].mul(df_Kr['dT'].loc[df_Kr['AnzRK']>0]))
+        np.aveRKw = np.aveRKw.sum()/df_Kr['dT'].loc[df_Kr['AnzRK']>0].sum()
+        np.aveLKw = (df_Kr['deltaNT'].loc[df_Kr['AnzLK']>0].mul(df_Kr['dT'].loc[df_Kr['AnzLK']>0]))
+        np.aveLKw = np.aveLKw.sum()/df_Kr['dT'].loc[df_Kr['AnzLK']>0].sum()
+
+        np.AOR_ave_RKw  = (df_Kr.AOR_ave.loc[df_Kr.AnzRK>0].mul(df_Kr.dT.loc[df_Kr.AnzRK>0]))
+        np.AOR_ave_RKw  = np.AOR_ave_RKw.sum()/df_Kr.dT.loc[df_Kr.AnzRK>0].sum()
+        np.AOR_ave_LKw  = (df_Kr.AOR_ave.loc[df_Kr.AnzLK>0].mul(df_Kr.dT.loc[df_Kr.AnzLK>0]))
+        np.AOR_ave_LKw  = np.AOR_ave_LKw.sum()/df_Kr.dT.loc[df_Kr.AnzLK>0].sum()
+    elif (methode=="Type"):
+        np.aveRKw = (df_Kr['deltaNT'].loc[df_Kr.Type=="R"].mul(df_Kr['dT'].loc[df_Kr.Type=="R"]))
+        np.aveRKw = np.aveRKw.sum()/df_Kr['dT'].loc[df_Kr.Type=="R"].sum()
+        np.aveLKw = (df_Kr['deltaNT'].loc[df_Kr.Type=="L"].mul(df_Kr['dT'].loc[df_Kr.Type=="L"]))
+        np.aveLKw = np.aveLKw.sum()/df_Kr['dT'].loc[df_Kr.Type=="L"].sum()
+
+        np.AOR_ave_RKw  = (df_Kr.AOR_ave.loc[df_Kr.Type=="R"].mul(df_Kr.dT.loc[df_Kr.Type=="R"]))
+        np.AOR_ave_RKw  = np.AOR_ave_RKw.sum()/df_Kr.dT.loc[df_Kr.Type=="R"].sum()
+        np.AOR_ave_LKw  = (df_Kr.AOR_ave.loc[df_Kr.Type=="L"].mul(df_Kr.dT.loc[df_Kr.Type=="L"]))
+        np.AOR_ave_LKw  = np.AOR_ave_LKw.sum()/df_Kr.dT.loc[df_Kr.Type=="L"].sum()    
+
+    
 
     ax1.hlines(np.aveRKw, 0, np.max([AnzLK,AnzRK])+1,  linestyle='dotted' ,color='g' , label = 'weighted av. right')
     ax1.hlines(np.aveLKw, 0, np.max([AnzLK,AnzRK])+1,  linestyle='dotted' ,color='r' , label = 'weighted av. left')  
@@ -901,7 +953,7 @@ def MathPlLibPlot(FlapSensor,filename,hardware,software,AnzRK,AnzLK,deltaNT,df_K
 
 
     ax1.legend()
-    return  aveRK,  aveLK 
+    return  aveRK,  aveLK, np.aveRKw, np.aveLKw, AOR_ave_RK, AOR_ave_LK, np.AOR_ave_RKw, np.AOR_ave_LKw  
 
 
 
@@ -940,7 +992,7 @@ def PlotlyPlot(FlapSensor,filename,hardware,software,AnzRK,AnzLK,deltaNT,df_Kr):
     aveLK = deltaNT[AnzLK>0].mean()
     
     if isinstance(filename, str):
-        filename = 'dummy - please replace'
+        #filename = 'dummy - please replace'
         print(f'filename = ', filename)
     else:
         filename=filename.filename
@@ -1072,5 +1124,7 @@ def PlotlyPlot(FlapSensor,filename,hardware,software,AnzRK,AnzLK,deltaNT,df_Kr):
     # Save plot as a static image
     # pio.write_image(fig, 'output.png')
     plot_html = to_html(fig, full_html=False, config={'responsive': True})
-         
+    
     return  aveRK,  aveLK, plot_html
+
+# End of file
