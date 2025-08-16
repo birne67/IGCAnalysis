@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "IGCAnalysis"
+version = "1.2"
+description = "MY IGC LIB"
+authors = [
+    { name = "Helmut Kindl", email = "hkindl@gmail.com" }
+]
+urls = { "Homepage" = "https://github.com/birne67/IGCAnalysis" }
+license = { file = "LICENSE" }
+readme = "README.md"
