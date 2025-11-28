@@ -40,6 +40,17 @@ from scipy import signal
 import datetime  # https://stackoverflow.com/questions/29385868/plotting-datetime-objects-with-pyqtgraph
 from datetime import datetime
 
+# optional timezone helper (timezonefinder gives tz name from lat/lon)
+try:
+    from timezonefinder import TimezoneFinder
+except Exception:
+    TimezoneFinder = None
+
+try:
+    from zoneinfo import ZoneInfo
+except Exception:
+    ZoneInfo = None
+
 # Subroutinen
 
 def asymplot(filename,l_plt=1,l_suchkr=1,l_wechsel=0,l_web=0):
@@ -79,6 +90,8 @@ def asymplot(filename,l_plt=1,l_suchkr=1,l_wechsel=0,l_web=0):
         #### Panda Data Frame erzeugen
 
         df, dfk = mpdf(findstrings, kfindstrings)
+
+        # automatic timezone detection moved to module-level function
 
         # Latitude und Longitude berechnen 
 
@@ -313,6 +326,59 @@ def is_convertible_to_float(value):
     except ValueError:
         print('Value  (not convertable):', value)
         return False
+
+
+def _detect_timezone_for_df(df_input, lat_col='Latitude', lon_col='Longitude'):
+    """Try to find a timezone name for the (median) position of df_input.
+
+    Returns a tz name string (e.g. 'Europe/Berlin') or None on failure.
+    Requires package `timezonefinder` (pip install timezonefinder). If the
+    timezone cannot be found for the median coordinate, the nearest timezone
+    is attempted as fallback.
+    """
+    if TimezoneFinder is None:
+        return None
+    try:
+        lat_series = df_input[lat_col].dropna().astype(float)
+        lon_series = df_input[lon_col].dropna().astype(float)
+    except Exception:
+        return None
+    if lat_series.empty or lon_series.empty:
+        return None
+    # helper: convert packed IGC-like coords (e.g. 2836582.5) to decimal degrees
+    def _to_decimal_deg(val, is_lat=True):
+        # handle NaN
+        try:
+            v = float(val)
+        except Exception:
+            return None
+        # already in reasonable range -> assume decimal degrees
+        if is_lat and -90.0 <= v <= 90.0:
+            return v
+        if (not is_lat) and -180.0 <= v <= 180.0:
+            return v
+
+        # packed format used in some IGC variants: DDDMMmmm(.x) -> e.g. 2836582.5
+        # algorithm follows logic used elsewhere in this codebase
+        deg = int(v // 100000)
+        minutes_whole = int((v % 100000) // 1000)
+        minutes_frac = (v % 1000) / 1000.0
+        dec = deg + (minutes_whole + minutes_frac) / 60.0
+        # If value likely represents Southern or West markers via sign, flip
+        if v < 0:
+            dec = -abs(dec)
+        return dec
+
+    lat = _to_decimal_deg(lat_series.median(), is_lat=True)
+    lon = _to_decimal_deg(lon_series.median(), is_lat=False)
+    tf = TimezoneFinder()
+    tz = tf.timezone_at(lng=lon, lat=lat)
+    if tz is None:
+        tz = tf.closest_timezone_at(lng=lon, lat=lat)
+
+    print(f'Detected timezone: {tz} for lat={lat}, lon={lon}')
+    return tz
+      
 def mpdf (findstrings, kfindstrings):
     
     findstr    = findstrings['findstr']
@@ -334,9 +400,17 @@ def mpdf (findstrings, kfindstrings):
         if var in lst:
             if var == 'Zeit':
                 #Die Spalte Zeit in Datumsformat ändern
-                df['Zeit'] = pd.to_datetime(df['Zeit'],format='%H%M%S')
-                # df['Zeit'] = df['Zeit'].dt.tz_localize('utc').dt.tz_convert('Europe/Berlin')
-                df['Zeit'] = df['Zeit'].dt.tz_localize('utc').dt.tz_convert('US/Central')
+                df['Zeit'] = pd.to_datetime(df['Zeit'],format='%H%M%S', errors='coerce')
+                # autom. Zeitzone anhand der Position (Median) bestimmen
+                tzname = _detect_timezone_for_df(df, lat_col='Latitude', lon_col='Longitude')
+                if tzname is None:
+                    # default to UTC if detection missing
+                    df['Zeit'] = df['Zeit'].dt.tz_localize('utc')
+                else:
+                    try:
+                        df['Zeit'] = df['Zeit'].dt.tz_localize('utc').dt.tz_convert(tzname)
+                    except Exception:
+                        df['Zeit'] = df['Zeit'].dt.tz_localize('utc')
                 df_time = df['Zeit']
                 df['Seconds'] = ((df_time.dt.hour)*60+df_time.dt.minute)*60 + df_time.dt.second
         else:
@@ -351,9 +425,15 @@ def mpdf (findstrings, kfindstrings):
 
         if var == 'Zeit':
                 #Die Spalte Zeit in Datumsformat ändern
-                dfk['Zeit'] = pd.to_datetime(dfk['Zeit'],format='%H%M%S')
-                #dfk['Zeit'] = dfk['Zeit'].dt.tz_localize('utc').dt.tz_convert('Europe/Berlin')
-                dfk['Zeit'] = dfk['Zeit'].dt.tz_localize('utc').dt.tz_convert('US/Central')
+                dfk['Zeit'] = pd.to_datetime(dfk['Zeit'],format='%H%M%S', errors='coerce')
+                tzname_k = _detect_timezone_for_df(dfk, lat_col='Latitude', lon_col='Longitude')
+                if tzname_k is None:
+                    dfk['Zeit'] = dfk['Zeit'].dt.tz_localize('utc')
+                else:
+                    try:
+                        dfk['Zeit'] = dfk['Zeit'].dt.tz_localize('utc').dt.tz_convert(tzname_k)
+                    except Exception:
+                        dfk['Zeit'] = dfk['Zeit'].dt.tz_localize('utc')
                 dfk_time = dfk['Zeit']
                 dfk['Seconds'] = (dfk_time.dt.hour*60+dfk_time.dt.minute)*60 + dfk_time.dt.second
         else:

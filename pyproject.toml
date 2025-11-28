@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "IGCAnalysis"
-version = "1.2"
+version = "1.3.0"
 description = "MY IGC LIB"
 authors = [
     { name = "Helmut Kindl", email = "hkindl@gmail.com" }
