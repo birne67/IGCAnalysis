@@ -1,6 +1,6 @@
-#import IGCAnalysis
-import igcanalysis
-from igcanalysis import AsymPlotLib as apl
+import IGCAnalysis
+#import igcanalysis
+from IGCAnalysis import AsymPlotLib as apl
 
 
 import numpy as np
@@ -33,7 +33,8 @@ def test_AsymPlot():
     
     ####   Daten einlesen
 
-    filename = 'src\37KVQ2I1.igc'
+    # Use POSIX path (forward slash) so backslash escapes aren't interpreted
+    filename = '../src/37KVQ2I1.igc'
     findstrings, kfindstrings, hardware, software, FlapSensor = apl.readfile(filename)
 
     findstr    =  findstrings['findstr']

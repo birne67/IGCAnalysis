@@ -1,0 +1,13 @@
+LICENSE
+README.md
+pyproject.toml
+IGCAnalysis/AsymPlotLib.py
+IGCAnalysis/__init__.py
+IGCAnalysis/myfunctions.py
+IGCAnalysis.egg-info/PKG-INFO
+IGCAnalysis.egg-info/SOURCES.txt
+IGCAnalysis.egg-info/dependency_links.txt
+IGCAnalysis.egg-info/top_level.txt
+IGCAnalysis/Backup/AsymPlotLib_V1.py
+tests/test_AsymPlotLib.py
+tests/test_myfunctions.py

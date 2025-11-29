@@ -1,4 +1,5 @@
-from mypythonlib import myfunctions
+import IGCAnalysis
+from IGCAnalysis import myfunctions
 
 def test_haversine():
     # Amsterdam to Berlin
