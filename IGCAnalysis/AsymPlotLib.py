@@ -1,3 +1,5 @@
+# Change Log: 2025-08-16 neue Mittelung nach Type "R" oder "L" eingefügt!  
+
 import numpy as np
 import sys
 import pandas as pd
@@ -38,6 +40,17 @@ from scipy import signal
 import datetime  # https://stackoverflow.com/questions/29385868/plotting-datetime-objects-with-pyqtgraph
 from datetime import datetime
 
+# optional timezone helper (timezonefinder gives tz name from lat/lon)
+try:
+    from timezonefinder import TimezoneFinder
+except Exception:
+    TimezoneFinder = None
+
+try:
+    from zoneinfo import ZoneInfo
+except Exception:
+    ZoneInfo = None
+
 # Subroutinen
 
 def asymplot(filename,l_plt=1,l_suchkr=1,l_wechsel=0,l_web=0):
@@ -51,6 +64,10 @@ def asymplot(filename,l_plt=1,l_suchkr=1,l_wechsel=0,l_web=0):
     aveRK    = np.nan
     np.aveRKw = np.nan
     np.aveLKw = np.nan
+    AOR_ave_RK = np.nan
+    AOR_ave_LK = np.nan
+    np.AOR_ave_RKw  = np.nan
+    np.AOR_ave_LKw  = np.nan
     
     if isinstance(filename, str):
         pass
@@ -73,6 +90,8 @@ def asymplot(filename,l_plt=1,l_suchkr=1,l_wechsel=0,l_web=0):
         #### Panda Data Frame erzeugen
 
         df, dfk = mpdf(findstrings, kfindstrings)
+
+        # automatic timezone detection moved to module-level function
 
         # Latitude und Longitude berechnen 
 
@@ -102,8 +121,8 @@ def asymplot(filename,l_plt=1,l_suchkr=1,l_wechsel=0,l_web=0):
 
             Kreisengamma,df_Kr,df_Gl,AnzRK, AnzLK                          =  EstimateTrajectoryAngle (BDG,LDG,Height, Sekunden, df2, AOR, l_suchkr, l_wechsel, TRT)
 
-            aveRK, aveLK, np.aveRKw,np.aveLKw, df_Kr, plot_html = AsymPlot(AnzRK,AnzLK,df,df_Kr,filename,hardware, software, FlapSensor, l_plt, l_web)
-
+            aveRK, aveLK, np.aveRKw, np.aveLKw,  AOR_ave_RK, AOR_ave_LK, np.AOR_ave_RKw, np.AOR_ave_LKw, df_Kr, plot_html = \
+                AsymPlot(AnzRK,AnzLK,df,df_Kr,filename,hardware, software, FlapSensor, l_plt, l_web)
             l_hawk = True
         else:
             l_hawk = False
@@ -111,7 +130,7 @@ def asymplot(filename,l_plt=1,l_suchkr=1,l_wechsel=0,l_web=0):
     else:
         l_hawk = False
         
-    return  l_hawk, aveRK, aveLK,  np.aveRKw, np.aveLKw, df_Kr, hardware, software, FlapSensor
+    return  l_hawk, aveRK, aveLK,  np.aveRKw, np.aveLKw,  AOR_ave_RK, AOR_ave_LK, np.AOR_ave_RKw, np.AOR_ave_LKw, df_Kr, hardware, software, FlapSensor
         
         
       
@@ -300,6 +319,66 @@ def readfile(filename):
     
     return findstrings, kfindstrings, hardware, software, FlapSensor
 
+def is_convertible_to_float(value):
+    try:
+        float(value)
+        return True
+    except ValueError:
+        print('Value  (not convertable):', value)
+        return False
+
+
+def _detect_timezone_for_df(df_input, lat_col='Latitude', lon_col='Longitude'):
+    """Try to find a timezone name for the (median) position of df_input.
+
+    Returns a tz name string (e.g. 'Europe/Berlin') or None on failure.
+    Requires package `timezonefinder` (pip install timezonefinder). If the
+    timezone cannot be found for the median coordinate, the nearest timezone
+    is attempted as fallback.
+    """
+    if TimezoneFinder is None:
+        return None
+    try:
+        lat_series = df_input[lat_col].dropna().astype(float)
+        lon_series = df_input[lon_col].dropna().astype(float)
+    except Exception:
+        return None
+    if lat_series.empty or lon_series.empty:
+        return None
+    # helper: convert packed IGC-like coords (e.g. 2836582.5) to decimal degrees
+    def _to_decimal_deg(val, is_lat=True):
+        # handle NaN
+        try:
+            v = float(val)
+        except Exception:
+            return None
+        # already in reasonable range -> assume decimal degrees
+        if is_lat and -90.0 <= v <= 90.0:
+            return v
+        if (not is_lat) and -180.0 <= v <= 180.0:
+            return v
+
+        # packed format used in some IGC variants: DDDMMmmm(.x) -> e.g. 2836582.5
+        # algorithm follows logic used elsewhere in this codebase
+        deg = int(v // 100000)
+        minutes_whole = int((v % 100000) // 1000)
+        minutes_frac = (v % 1000) / 1000.0
+        dec = deg + (minutes_whole + minutes_frac) / 60.0
+        # If value likely represents Southern or West markers via sign, flip
+        if v < 0:
+            dec = -abs(dec)
+        return dec
+
+    lat = _to_decimal_deg(lat_series.median(), is_lat=True)
+    lon = _to_decimal_deg(lon_series.median(), is_lat=False)
+    tf = TimezoneFinder()
+    tz = tf.timezone_at(lng=lon, lat=lat)
+    if tz is None:
+        tz = tf.closest_timezone_at(lng=lon, lat=lat)
+
+    print(f'Detected timezone: {tz} for lat={lat}, lon={lon}')
+    return tz
+      
 def mpdf (findstrings, kfindstrings):
     
     findstr    = findstrings['findstr']
@@ -314,42 +393,131 @@ def mpdf (findstrings, kfindstrings):
     dfk = pd.DataFrame.from_dict(kfindstr_d, orient='columns')
     
     lst  = ['NorthSouth', 'EastWest']
+    # process main df (use original behavior: invalid values -> 1000)
+    df = _prepare_dataframe(df, findstr_list=findstr, findstr_factors=findstr_f, invalid_fill=1000.0)
 
-    # Wandeln der DataFrame Daten-Typen in float
-    lst.append('Zeit')
-    for var in df.columns:
-        if var in lst:
-            if var == 'Zeit':
-                #Die Spalte Zeit in Datumsformat ändern
-                df['Zeit'] = pd.to_datetime(df['Zeit'],format='%H%M%S')
-                # df['Zeit'] = df['Zeit'].dt.tz_localize('utc').dt.tz_convert('Europe/Berlin')
-                df['Zeit'] = df['Zeit'].dt.tz_localize('utc').dt.tz_convert('US/Central')
-                df_time = df['Zeit']
-                df['Seconds'] = ((df_time.dt.hour)*60+df_time.dt.minute)*60 + df_time.dt.second
-        else:
-            #print('VAR =', var,' Type:', type(var))
-            df[var]=df[var].astype(float)
-            if var in findstr:
-                #pos = findstrg.index(var)
-                df[var]=df[var]/findstr_f[findstr.index(var)]
+    # process dfk (keep invalids as NaN; original used astype(float))
+    dfk = _prepare_dataframe(dfk, findstr_list=kfindstr, findstr_factors=kfindstr_f, invalid_fill=None)
 
-    for var in dfk.columns:
 
-        if var == 'Zeit':
-                #Die Spalte Zeit in Datumsformat ändern
-                dfk['Zeit'] = pd.to_datetime(dfk['Zeit'],format='%H%M%S')
-                #dfk['Zeit'] = dfk['Zeit'].dt.tz_localize('utc').dt.tz_convert('Europe/Berlin')
-                dfk['Zeit'] = dfk['Zeit'].dt.tz_localize('utc').dt.tz_convert('US/Central')
-                dfk_time = dfk['Zeit']
-                dfk['Seconds'] = (dfk_time.dt.hour*60+dfk_time.dt.minute)*60 + dfk_time.dt.second
-        else:
-            #print('VAR =', var,' Type:', type(var))
-            dfk[var]=dfk[var].astype(float)
-            if var in kfindstr:
-                #pos = findstrg.index(var)
-                dfk[var]=dfk[var]/kfindstr_f[kfindstr.index(var)]
+#    # Wandeln der DataFrame Daten-Typen in float
+#    lst.append('Zeit')
+#    for var in df.columns:
+#        if var in lst:
+#            if var == 'Zeit':
+#                #Die Spalte Zeit in Datumsformat ändern
+#                df['Zeit'] = pd.to_datetime(df['Zeit'],format='%H%M%S', errors='coerce')
+#                # autom. Zeitzone anhand der Position (Median) bestimmen
+#                tzname = _detect_timezone_for_df(df, lat_col='Latitude', lon_col='Longitude')
+#                if tzname is None:
+#                    # default to UTC if detection missing
+#                    df['Zeit'] = df['Zeit'].dt.tz_localize('utc')
+#                else:
+#                    try:
+#                        df['Zeit'] = df['Zeit'].dt.tz_localize('utc').dt.tz_convert(tzname)
+#                    except Exception:
+#                        df['Zeit'] = df['Zeit'].dt.tz_localize('utc')
+#                df_time = df['Zeit']
+#                df['Seconds'] = ((df_time.dt.hour)*60+df_time.dt.minute)*60 + df_time.dt.second
+#        else:
+#            #print('VAR =', var,' Type:', type(var))
+#           # Check if the value can be converted to float
+#            df[var] = df[var].apply(lambda x: float(x) if is_convertible_to_float(x) else 1000)
+#            if var in findstr:
+#                #pos = findstrg.index(var)
+#                df[var]=df[var]/findstr_f[findstr.index(var)]
+#
+#    for var in dfk.columns:
+#
+#        if var == 'Zeit':
+#                #Die Spalte Zeit in Datumsformat ändern
+#                dfk['Zeit'] = pd.to_datetime(dfk['Zeit'],format='%H%M%S', errors='coerce')
+#                tzname_k = _detect_timezone_for_df(dfk, lat_col='Latitude', lon_col='Longitude')
+#                if tzname_k is None:
+#                    dfk['Zeit'] = dfk['Zeit'].dt.tz_localize('utc')
+#                else:
+#                    try:
+#                        dfk['Zeit'] = dfk['Zeit'].dt.tz_localize('utc').dt.tz_convert(tzname_k)
+#                    except Exception:
+#                        dfk['Zeit'] = dfk['Zeit'].dt.tz_localize('utc')
+#                dfk_time = dfk['Zeit']
+#                dfk['Seconds'] = (dfk_time.dt.hour*60+dfk_time.dt.minute)*60 + dfk_time.dt.second
+#        else:
+#            #print('VAR =', var,' Type:', type(var))
+#            dfk[var]=dfk[var].astype(float)
+#            if var in kfindstr:
+#                #pos = findstrg.index(var)
+#                dfk[var]=dfk[var]/kfindstr_f[kfindstr.index(var)]
 
     return df, dfk
+
+def _prepare_dataframe(df,
+                       findstr_list=None,
+                       findstr_factors=None,
+                       invalid_fill=None,
+                       lat_col='Latitude',
+                       lat_nw='NorthSouth',
+                       lon_col='Longitude',
+                       lon_ew='EastWest',
+                       time_format='%H%M%S',
+                       skip_cols=('NorthSouth', 'EastWest')):
+    """
+    Prepares dataframe columns:
+     - Converts 'Zeit' to datetime, applies timezone detection and computes 'Seconds'
+     - Converts other columns to numeric (coerce) and optionally fills invalids
+     - If a column appears in findstr_list, divides column by corresponding factor
+     - Skips columns listed in skip_cols from conversion to numeric
+    Returns the modified dataframe (in place).
+    """
+    if df is None or df.empty:
+        return df
+
+    # Columns to skip conversion into numeric
+    skip = set(skip_cols)
+
+    # Correct Latitude and Longitude based on N/S and E/W markers
+    if lat_col in df.columns and lat_nw in df.columns:
+        lat_series = df[lat_col].astype(float)
+        lat_series.loc[lat_series[df[lat_nw]=='S'].dropna().index] = -abs(lat_series)
+        df[lat_col] = lat_series
+
+    if lon_col in df.columns and lon_ew in df.columns:
+        lon_series = df[lon_col].astype(float)
+        lon_series.loc[lon_series[df[lon_ew]=='W'].dropna().index] = -abs(lon_series)
+        df[lon_col] = lon_series
+
+    for col in df.columns:
+        if col == 'Zeit':
+            df['Zeit'] = pd.to_datetime(df['Zeit'], format=time_format, errors='coerce')
+            tzname = _detect_timezone_for_df(df, lat_col=lat_col, lon_col=lon_col)
+            if tzname is None:
+                df['Zeit'] = df['Zeit'].dt.tz_localize('utc')
+            else:
+                try:
+                    df['Zeit'] = df['Zeit'].dt.tz_localize('utc').dt.tz_convert(tzname)
+                except Exception:
+                    df['Zeit'] = df['Zeit'].dt.tz_localize('utc')
+            df_time = df['Zeit']
+            df['Seconds'] = ((df_time.dt.hour) * 60 + df_time.dt.minute) * 60 + df_time.dt.second
+
+        elif col in skip:
+            # keep as-is
+            continue
+        else:
+            s = pd.to_numeric(df[col], errors='coerce')
+            if invalid_fill is not None:
+                s = s.fillna(invalid_fill)
+            df[col] = s
+            if findstr_list and findstr_factors and col in findstr_list:
+                idx = findstr_list.index(col)
+                try:
+                    factor = findstr_factors[idx]
+                    df[col] = df[col] / factor
+                except Exception:
+                    # if factor mis-specified / missing - ignore silently
+                    pass
+
+    return df
 
 def CalcTrack (df):
     # Breitengrad
@@ -377,9 +545,9 @@ def CalcTrack (df):
     
     H1 = (df['Longitude'][:]%1e3)/1000
     H2 = np.floor(df['Longitude'][:]%1e5/1000)
-    H2 = (H1+H2)/60;
-    H1 = np.floor(df['Longitude']/1e5);
-    LDG = H1+H2;
+    H2 = (H1+H2)/60
+    H1 = np.floor(df['Longitude']/1e5)
+    LDG = H1+H2
     
     LDG.loc[LDG[df['EastWest']=='W'].dropna().index]=-LDG
     
@@ -778,6 +946,8 @@ def AsymPlot (AnzRK,AnzLK,df,df_Kr,filename,hardware, software, FlapSensor, l_pl
 
     dH_TEK   = np.array([])
     dH_Netto = np.array([])
+    AOR_ave  = np.array([])
+    ENL      = np.array([])
 
     for j in range(0,len(df_Kr['Nr'])):
         a = np.int32(df_Kr['Startzeit'][j])
@@ -786,6 +956,8 @@ def AsymPlot (AnzRK,AnzLK,df,df_Kr,filename,hardware, software, FlapSensor, l_pl
         b = df.loc[(df['Seconds']<=b)].index[-1]
         dH_Netto = np.append(dH_Netto, np.trapz(df['NET'][a:b], x = df['Seconds'][a:b]))
         dH_TEK   = np.append(dH_TEK, np.trapz(df['VAT'][a:b], x = df['Seconds'][a:b]))
+        AOR_ave  = np.append(AOR_ave, np.average(df['AOR'][a:b]))
+        ENL      = np.append(ENL, np.average(df['ENL'][a:b]))
 
     dT = df_Kr['dT'].to_numpy()
     deltaNT = np.divide(np.subtract(dH_TEK,dH_Netto),dT)
@@ -793,10 +965,12 @@ def AsymPlot (AnzRK,AnzLK,df,df_Kr,filename,hardware, software, FlapSensor, l_pl
     df_Kr['dHdT(TEK)']   = dH_TEK/dT
     df_Kr['dHfT(Netto)'] = dH_Netto/dT
     df_Kr['deltaNT']     = deltaNT
+    df_Kr['AOR_ave']     = AOR_ave
+    df_Kr['ENLave']      = ENL
 
 
-    AnzLK = np.delete(AnzLK, -1)
-    AnzRK = np.delete(AnzRK, -1)
+    AnzLK = np.delete(AnzLK, -1)  # letztes Element wird gelöscht!
+    AnzRK = np.delete(AnzRK, -1)  # letztes Element wird gelöscht!
     
     df_Kr['AnzRK']       = AnzRK
     df_Kr['AnzLK']       = AnzLK
@@ -826,12 +1000,13 @@ def AsymPlot (AnzRK,AnzLK,df,df_Kr,filename,hardware, software, FlapSensor, l_pl
             # df_Kr['#Thermals'][j]=df_Kr['AnzLK'][j]
             # j=j+1
         
+    df_Kr = df_Kr.drop(df_Kr[df_Kr.ENLave > 50].index)    # Neu 02.09.2024
 
     if l_web==1:
         aveRK, aveLK, plot_html = PlotlyPlot(FlapSensor,filename,hardware,software,AnzRK,AnzLK,deltaNT,df_Kr)
         
     else:
-        aveRK, aveLK = MathPlLibPlot(FlapSensor,filename,hardware,software,AnzRK,AnzLK,deltaNT,df_Kr)
+        aveRK, aveLK, np.aveRKw, np.aveLKw, AOR_ave_RK, AOR_ave_LK, np.AOR_ave_RKw, np.AOR_ave_LKw = MathPlLibPlot(FlapSensor,filename,hardware,software,AnzRK,AnzLK,deltaNT,df_Kr)
         plot_html = np.nan  
 
         if l_plt==1:
@@ -845,7 +1020,7 @@ def AsymPlot (AnzRK,AnzLK,df,df_Kr,filename,hardware, software, FlapSensor, l_pl
             savename = f"{(filename.split('.')[0])}{'_py.xlsx'}"
             df_Kr.to_excel(savename)
     
-    return aveRK, aveLK, np.aveRKw, np.aveLKw,  df_Kr, plot_html
+    return aveRK, aveLK, np.aveRKw, np.aveLKw,  AOR_ave_RK, AOR_ave_LK, np.AOR_ave_RKw, np.AOR_ave_LKw, df_Kr, plot_html
 
 
 def MathPlLibPlot(FlapSensor,filename,hardware,software,AnzRK,AnzLK,deltaNT,df_Kr):
@@ -865,6 +1040,11 @@ def MathPlLibPlot(FlapSensor,filename,hardware,software,AnzRK,AnzLK,deltaNT,df_K
     ax1.set_title("Asymmetry Plot: " + filename+" (" +hardware+ ", "+ software + FlS + ")", fontsize='large')
     ax1.grid(True)
 
+    # Neu 01.09.2024
+    AnzLK= df_Kr.AnzLK
+    AnzRK= df_Kr.AnzRK
+    deltaNT = df_Kr.deltaNT
+
     ax1.scatter (AnzRK[AnzRK>0],deltaNT[AnzRK>0],color='g', edgecolors='black', label='right circling')
     ax1.scatter (AnzLK[AnzLK>0],deltaNT[AnzLK>0],color='r', edgecolors='black', label='left circling')
     ax1.set_xlabel('No of Circles in Thermals (right and left) / -')
@@ -876,14 +1056,40 @@ def MathPlLibPlot(FlapSensor,filename,hardware,software,AnzRK,AnzLK,deltaNT,df_K
 
     aveRK = deltaNT[AnzRK>0].mean()
     aveLK = deltaNT[AnzLK>0].mean()
+    AOR_ave_RK = df_Kr.AOR_ave[AnzRK>0].mean()
+    AOR_ave_LK = df_Kr.AOR_ave[AnzLK>0].mean()
+    
+    h11_RK = df_Kr.AOR_ave[df_Kr.Type=='R'].mean()
+    h11_LK = df_Kr.AOR_ave[df_Kr.Type=='L'].mean()
+    
+    
     ax1.hlines(aveRK, 0, np.max([AnzLK,AnzRK])+1,  linestyle='dashed' ,color='g' , label = 'average right')
     ax1.hlines(aveLK, 0, np.max([AnzLK,AnzRK])+1,  linestyle='dashed' ,color='r' , label = 'average left')
  
     # weighted Average
-    np.aveRKw = (df_Kr['deltaNT'].loc[df_Kr['AnzRK']>0].mul(df_Kr['dT'].loc[df_Kr['AnzRK']>0]))
-    np.aveRKw = np.aveRKw.sum()/df_Kr['dT'].loc[df_Kr['AnzRK']>0].sum()
-    np.aveLKw = (df_Kr['deltaNT'].loc[df_Kr['AnzLK']>0].mul(df_Kr['dT'].loc[df_Kr['AnzLK']>0]))
-    np.aveLKw = np.aveLKw.sum()/df_Kr['dT'].loc[df_Kr['AnzLK']>0].sum()
+    methode = 'Type'  # oder 'Type'  # neu 16.08.2025
+    if (methode=="Anzahl"):
+        np.aveRKw = (df_Kr['deltaNT'].loc[df_Kr['AnzRK']>0].mul(df_Kr['dT'].loc[df_Kr['AnzRK']>0]))
+        np.aveRKw = np.aveRKw.sum()/df_Kr['dT'].loc[df_Kr['AnzRK']>0].sum()
+        np.aveLKw = (df_Kr['deltaNT'].loc[df_Kr['AnzLK']>0].mul(df_Kr['dT'].loc[df_Kr['AnzLK']>0]))
+        np.aveLKw = np.aveLKw.sum()/df_Kr['dT'].loc[df_Kr['AnzLK']>0].sum()
+
+        np.AOR_ave_RKw  = (df_Kr.AOR_ave.loc[df_Kr.AnzRK>0].mul(df_Kr.dT.loc[df_Kr.AnzRK>0]))
+        np.AOR_ave_RKw  = np.AOR_ave_RKw.sum()/df_Kr.dT.loc[df_Kr.AnzRK>0].sum()
+        np.AOR_ave_LKw  = (df_Kr.AOR_ave.loc[df_Kr.AnzLK>0].mul(df_Kr.dT.loc[df_Kr.AnzLK>0]))
+        np.AOR_ave_LKw  = np.AOR_ave_LKw.sum()/df_Kr.dT.loc[df_Kr.AnzLK>0].sum()
+    elif (methode=="Type"):
+        np.aveRKw = (df_Kr['deltaNT'].loc[df_Kr.Type=="R"].mul(df_Kr['dT'].loc[df_Kr.Type=="R"]))
+        np.aveRKw = np.aveRKw.sum()/df_Kr['dT'].loc[df_Kr.Type=="R"].sum()
+        np.aveLKw = (df_Kr['deltaNT'].loc[df_Kr.Type=="L"].mul(df_Kr['dT'].loc[df_Kr.Type=="L"]))
+        np.aveLKw = np.aveLKw.sum()/df_Kr['dT'].loc[df_Kr.Type=="L"].sum()
+
+        np.AOR_ave_RKw  = (df_Kr.AOR_ave.loc[df_Kr.Type=="R"].mul(df_Kr.dT.loc[df_Kr.Type=="R"]))
+        np.AOR_ave_RKw  = np.AOR_ave_RKw.sum()/df_Kr.dT.loc[df_Kr.Type=="R"].sum()
+        np.AOR_ave_LKw  = (df_Kr.AOR_ave.loc[df_Kr.Type=="L"].mul(df_Kr.dT.loc[df_Kr.Type=="L"]))
+        np.AOR_ave_LKw  = np.AOR_ave_LKw.sum()/df_Kr.dT.loc[df_Kr.Type=="L"].sum()    
+
+    
 
     ax1.hlines(np.aveRKw, 0, np.max([AnzLK,AnzRK])+1,  linestyle='dotted' ,color='g' , label = 'weighted av. right')
     ax1.hlines(np.aveLKw, 0, np.max([AnzLK,AnzRK])+1,  linestyle='dotted' ,color='r' , label = 'weighted av. left')  
@@ -901,7 +1107,7 @@ def MathPlLibPlot(FlapSensor,filename,hardware,software,AnzRK,AnzLK,deltaNT,df_K
 
 
     ax1.legend()
-    return  aveRK,  aveLK 
+    return  aveRK,  aveLK, np.aveRKw, np.aveLKw, AOR_ave_RK, AOR_ave_LK, np.AOR_ave_RKw, np.AOR_ave_LKw  
 
 
 
@@ -940,7 +1146,7 @@ def PlotlyPlot(FlapSensor,filename,hardware,software,AnzRK,AnzLK,deltaNT,df_Kr):
     aveLK = deltaNT[AnzLK>0].mean()
     
     if isinstance(filename, str):
-        filename = 'dummy - please replace'
+        #filename = 'dummy - please replace'
         print(f'filename = ', filename)
     else:
         filename=filename.filename
@@ -1072,5 +1278,7 @@ def PlotlyPlot(FlapSensor,filename,hardware,software,AnzRK,AnzLK,deltaNT,df_Kr):
     # Save plot as a static image
     # pio.write_image(fig, 'output.png')
     plot_html = to_html(fig, full_html=False, config={'responsive': True})
-         
+    
     return  aveRK,  aveLK, plot_html
+
+# End of file
