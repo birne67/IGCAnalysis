@@ -34,7 +34,7 @@ def test_AsymPlot():
     ####   Daten einlesen
 
     # Use POSIX path (forward slash) so backslash escapes aren't interpreted
-    filename = '../src/37KVQ2I1.igc'
+    filename = '/home/helmut/Python/IGCAnalysis/.venv_kubuntu/src/37KVQ2I1.igc'
     findstrings, kfindstrings, hardware, software, FlapSensor = apl.readfile(filename)
 
     findstr    =  findstrings['findstr']
