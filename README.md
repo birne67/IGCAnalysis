@@ -10,80 +10,6 @@ Kurz
 python -m pip install --upgrade pip build wheel pytest
 ```
 
----
-## Erklärung zu `.github/workflows/release-assets.yml`
-
-Kurzfassung (auf einen Blick)
-
-- Die Datei `.github/workflows/release-assets.yml` wird automatisch von GitHub Actions ausgeführt, wenn ein Tag gepusht wird, der zum Muster passt (hier: `v*.*.*` → z. B. `v1.3.0`).
-- Der Workflow baut dein Paket mit `python -m build` in einer frischen GitHub‑Runner‑Umgebung und lädt die erzeugten Artefakte `dist/*` als Release‑Assets an den GitHub Release (kein PyPI nötig).
-- Du brauchst in der Regel nur ein Tag zu pushen — GitHub Actions übernimmt alles. Optional kannst du den Workflow auch manuell auslösen.
-
-Detaillierte Erklärung – was der Workflow genau macht
-
-1) Trigger
-- Aktuell wird der Workflow bei Tag‑Pushes ausgelöst:
-```yaml
-on:
-    push:
-        tags:
-            - 'v*.*.*'
-```
-→ er startet automatisch, sobald z. B. `git tag v1.3.0` und `git push origin v1.3.0` ausgeführt werden.
-
-2) Schritte im Workflow
-- `actions/checkout@v4` — zieht den Quellcode in den Runner.
-- `actions/setup-python@v4` — richtet die Python‑Umgebung ein (hier: 3.10).
-- Install build tools — `python -m pip install --upgrade pip build`.
-- Build — `python -m build` erzeugt sdist und wheel in `dist/` im Runner.
-- `softprops/action-gh-release@v1` (mit `files: dist/*`) erzeugt bzw. ergänzt den zugehörigen GitHub Release und hängt alle Dateien aus `dist/` als Release‑Assets an.
-
-3) Auth & Rechte
-- `GITHUB_TOKEN` wird von GitHub Actions automatisch bereitgestellt und hat die benötigten Rechte, um Releases zu erstellen und Assets hochzuladen — keine zusätzlichen Secrets notwendig.
-
-4) Ergebnis
-- Dein Repository erhält auf GitHub einen Release mit den Build‑Artefakten (`.whl`, `.tar.gz`). Diese Artefakte kannst du herunterladen oder per `pip install <release-url>` installieren.
-
-Praktische Beispiele — so löst du den Workflow aus
-
-Automatisch (Standard):
-```bash
-# Stelle sicher, dass pyproject.toml die gewünschte Version enthält
-git add .
-git commit -m "chore: bump to 1.3.0"
-git tag v1.3.0
-git push origin v1.3.0
-```
-→ GitHub Actions startet automatisch und erzeugt Release + Assets.
-
-Manuell (optional):
-- Wenn du den Workflow manuell machen möchtest, kannst du `workflow_dispatch:` als weiteren Trigger ergänzen:
-```yaml
-on:
-    push:
-        tags:
-            - 'v*.*.*'
-    workflow_dispatch:
-```
-- Dann kannst du den Workflow im GitHub UI „Run workflow“ klicken oder per GitHub CLI starten:
-```bash
-gh workflow run release-assets.yml --repo birne67/IGCAnalysis
-```
-
-Debugging & häufige Fehler
-- Logs überprüfen: Repo → Actions → Run → Schritt‑Logs (Build / Upload).
-- Build‑Fehler: meist fehlende System‑Abhängigkeiten im Runner (ggf. apt‑install in Workflow ergänzen).
-- Leere `dist/`: prüfe, ob `python -m build` erfolgreich war.
-- Upload‑Fehler: prüfe dass `GITHUB_TOKEN` korrekt vorhanden ist (normalerweise automatisch verfügbar).
-
-Tipps & Anpassungen
-- Lade nur bestimmte Artefakte hoch: `files: dist/*.whl` statt `dist/*`.
-- Multi‑Version‑Build: benutze matrix jobs, falls du wheels für mehrere Python‑Versionen brauchst.
-- Release‑Notizen: du kannst automatisch Changelogs erzeugen oder `github.ref_name` als Release‑Titel verwenden.
-
-Empfehlung
-- Teste zuerst mit einem kleinen Tag (z. B. `v1.3.0`) und prüfe die Action‑Logs; wenn alles sauber läuft, ist der Release‑Workflow zuverlässig und erfordert kaum Wartung.
-
 2) Tests ausführen (vor jedem Build)
 ```bash
 python -m pytest -q
@@ -204,3 +130,80 @@ Client‑Installation aus Release:
 Was bedeutet pip install -e . genau?
 
 Es installiert keinen Kopie‑Ordner im site‑packages, sondern erstellt eine Verknüpfung auf dein Quellverzeichnis. Du änderst Code → Änderungen sind sofort wirksam beim Import. Super für Entwicklung und Debugging.
+
+
+=======================================
+
+---
+## Erklärung zu `.github/workflows/release-assets.yml`
+
+Kurzfassung (auf einen Blick)
+
+- Die Datei `.github/workflows/release-assets.yml` wird automatisch von GitHub Actions ausgeführt, wenn ein Tag gepusht wird, der zum Muster passt (hier: `v*.*.*` → z. B. `v1.3.0`).
+- Der Workflow baut dein Paket mit `python -m build` in einer frischen GitHub‑Runner‑Umgebung und lädt die erzeugten Artefakte `dist/*` als Release‑Assets an den GitHub Release (kein PyPI nötig).
+- Du brauchst in der Regel nur ein Tag zu pushen — GitHub Actions übernimmt alles. Optional kannst du den Workflow auch manuell auslösen.
+
+Detaillierte Erklärung – was der Workflow genau macht
+
+1) Trigger
+- Aktuell wird der Workflow bei Tag‑Pushes ausgelöst:
+```yaml
+on:
+    push:
+        tags:
+            - 'v*.*.*'
+```
+→ er startet automatisch, sobald z. B. `git tag v1.3.0` und `git push origin v1.3.0` ausgeführt werden.
+
+2) Schritte im Workflow
+- `actions/checkout@v4` — zieht den Quellcode in den Runner.
+- `actions/setup-python@v4` — richtet die Python‑Umgebung ein (hier: 3.10).
+- Install build tools — `python -m pip install --upgrade pip build`.
+- Build — `python -m build` erzeugt sdist und wheel in `dist/` im Runner.
+- `softprops/action-gh-release@v1` (mit `files: dist/*`) erzeugt bzw. ergänzt den zugehörigen GitHub Release und hängt alle Dateien aus `dist/` als Release‑Assets an.
+
+3) Auth & Rechte
+- `GITHUB_TOKEN` wird von GitHub Actions automatisch bereitgestellt und hat die benötigten Rechte, um Releases zu erstellen und Assets hochzuladen — keine zusätzlichen Secrets notwendig.
+
+4) Ergebnis
+- Dein Repository erhält auf GitHub einen Release mit den Build‑Artefakten (`.whl`, `.tar.gz`). Diese Artefakte kannst du herunterladen oder per `pip install <release-url>` installieren.
+
+Praktische Beispiele — so löst du den Workflow aus
+
+Automatisch (Standard):
+```bash
+# Stelle sicher, dass pyproject.toml die gewünschte Version enthält
+git add .
+git commit -m "chore: bump to 1.3.0"
+git tag v1.3.0
+git push origin v1.3.0
+```
+→ GitHub Actions startet automatisch und erzeugt Release + Assets.
+
+Manuell (optional):
+- Wenn du den Workflow manuell machen möchtest, kannst du `workflow_dispatch:` als weiteren Trigger ergänzen:
+```yaml
+on:
+    push:
+        tags:
+            - 'v*.*.*'
+    workflow_dispatch:
+```
+- Dann kannst du den Workflow im GitHub UI „Run workflow“ klicken oder per GitHub CLI starten:
+```bash
+gh workflow run release-assets.yml --repo birne67/IGCAnalysis
+```
+
+Debugging & häufige Fehler
+- Logs überprüfen: Repo → Actions → Run → Schritt‑Logs (Build / Upload).
+- Build‑Fehler: meist fehlende System‑Abhängigkeiten im Runner (ggf. apt‑install in Workflow ergänzen).
+- Leere `dist/`: prüfe, ob `python -m build` erfolgreich war.
+- Upload‑Fehler: prüfe dass `GITHUB_TOKEN` korrekt vorhanden ist (normalerweise automatisch verfügbar).
+
+Tipps & Anpassungen
+- Lade nur bestimmte Artefakte hoch: `files: dist/*.whl` statt `dist/*`.
+- Multi‑Version‑Build: benutze matrix jobs, falls du wheels für mehrere Python‑Versionen brauchst.
+- Release‑Notizen: du kannst automatisch Changelogs erzeugen oder `github.ref_name` als Release‑Titel verwenden.
+
+Empfehlung
+- Teste zuerst mit einem kleinen Tag (z. B. `v1.3.0`) und prüfe die Action‑Logs; wenn alles sauber läuft, ist der Release‑Workflow zuverlässig und erfordert kaum Wartung.

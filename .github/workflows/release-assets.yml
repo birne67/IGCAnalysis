@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  # allow manual runs from the GitHub UI or `gh workflow run`
+  workflow_dispatch: {}
 
 jobs:
   build-and-upload:

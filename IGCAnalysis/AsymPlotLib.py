@@ -393,57 +393,131 @@ def mpdf (findstrings, kfindstrings):
     dfk = pd.DataFrame.from_dict(kfindstr_d, orient='columns')
     
     lst  = ['NorthSouth', 'EastWest']
+    # process main df (use original behavior: invalid values -> 1000)
+    df = _prepare_dataframe(df, findstr_list=findstr, findstr_factors=findstr_f, invalid_fill=1000.0)
 
-    # Wandeln der DataFrame Daten-Typen in float
-    lst.append('Zeit')
-    for var in df.columns:
-        if var in lst:
-            if var == 'Zeit':
-                #Die Spalte Zeit in Datumsformat ändern
-                df['Zeit'] = pd.to_datetime(df['Zeit'],format='%H%M%S', errors='coerce')
-                # autom. Zeitzone anhand der Position (Median) bestimmen
-                tzname = _detect_timezone_for_df(df, lat_col='Latitude', lon_col='Longitude')
-                if tzname is None:
-                    # default to UTC if detection missing
-                    df['Zeit'] = df['Zeit'].dt.tz_localize('utc')
-                else:
-                    try:
-                        df['Zeit'] = df['Zeit'].dt.tz_localize('utc').dt.tz_convert(tzname)
-                    except Exception:
-                        df['Zeit'] = df['Zeit'].dt.tz_localize('utc')
-                df_time = df['Zeit']
-                df['Seconds'] = ((df_time.dt.hour)*60+df_time.dt.minute)*60 + df_time.dt.second
-        else:
-            #print('VAR =', var,' Type:', type(var))
-           # Check if the value can be converted to float
-            df[var] = df[var].apply(lambda x: float(x) if is_convertible_to_float(x) else 1000)
-            if var in findstr:
-                #pos = findstrg.index(var)
-                df[var]=df[var]/findstr_f[findstr.index(var)]
+    # process dfk (keep invalids as NaN; original used astype(float))
+    dfk = _prepare_dataframe(dfk, findstr_list=kfindstr, findstr_factors=kfindstr_f, invalid_fill=None)
 
-    for var in dfk.columns:
 
-        if var == 'Zeit':
-                #Die Spalte Zeit in Datumsformat ändern
-                dfk['Zeit'] = pd.to_datetime(dfk['Zeit'],format='%H%M%S', errors='coerce')
-                tzname_k = _detect_timezone_for_df(dfk, lat_col='Latitude', lon_col='Longitude')
-                if tzname_k is None:
-                    dfk['Zeit'] = dfk['Zeit'].dt.tz_localize('utc')
-                else:
-                    try:
-                        dfk['Zeit'] = dfk['Zeit'].dt.tz_localize('utc').dt.tz_convert(tzname_k)
-                    except Exception:
-                        dfk['Zeit'] = dfk['Zeit'].dt.tz_localize('utc')
-                dfk_time = dfk['Zeit']
-                dfk['Seconds'] = (dfk_time.dt.hour*60+dfk_time.dt.minute)*60 + dfk_time.dt.second
-        else:
-            #print('VAR =', var,' Type:', type(var))
-            dfk[var]=dfk[var].astype(float)
-            if var in kfindstr:
-                #pos = findstrg.index(var)
-                dfk[var]=dfk[var]/kfindstr_f[kfindstr.index(var)]
+#    # Wandeln der DataFrame Daten-Typen in float
+#    lst.append('Zeit')
+#    for var in df.columns:
+#        if var in lst:
+#            if var == 'Zeit':
+#                #Die Spalte Zeit in Datumsformat ändern
+#                df['Zeit'] = pd.to_datetime(df['Zeit'],format='%H%M%S', errors='coerce')
+#                # autom. Zeitzone anhand der Position (Median) bestimmen
+#                tzname = _detect_timezone_for_df(df, lat_col='Latitude', lon_col='Longitude')
+#                if tzname is None:
+#                    # default to UTC if detection missing
+#                    df['Zeit'] = df['Zeit'].dt.tz_localize('utc')
+#                else:
+#                    try:
+#                        df['Zeit'] = df['Zeit'].dt.tz_localize('utc').dt.tz_convert(tzname)
+#                    except Exception:
+#                        df['Zeit'] = df['Zeit'].dt.tz_localize('utc')
+#                df_time = df['Zeit']
+#                df['Seconds'] = ((df_time.dt.hour)*60+df_time.dt.minute)*60 + df_time.dt.second
+#        else:
+#            #print('VAR =', var,' Type:', type(var))
+#           # Check if the value can be converted to float
+#            df[var] = df[var].apply(lambda x: float(x) if is_convertible_to_float(x) else 1000)
+#            if var in findstr:
+#                #pos = findstrg.index(var)
+#                df[var]=df[var]/findstr_f[findstr.index(var)]
+#
+#    for var in dfk.columns:
+#
+#        if var == 'Zeit':
+#                #Die Spalte Zeit in Datumsformat ändern
+#                dfk['Zeit'] = pd.to_datetime(dfk['Zeit'],format='%H%M%S', errors='coerce')
+#                tzname_k = _detect_timezone_for_df(dfk, lat_col='Latitude', lon_col='Longitude')
+#                if tzname_k is None:
+#                    dfk['Zeit'] = dfk['Zeit'].dt.tz_localize('utc')
+#                else:
+#                    try:
+#                        dfk['Zeit'] = dfk['Zeit'].dt.tz_localize('utc').dt.tz_convert(tzname_k)
+#                    except Exception:
+#                        dfk['Zeit'] = dfk['Zeit'].dt.tz_localize('utc')
+#                dfk_time = dfk['Zeit']
+#                dfk['Seconds'] = (dfk_time.dt.hour*60+dfk_time.dt.minute)*60 + dfk_time.dt.second
+#        else:
+#            #print('VAR =', var,' Type:', type(var))
+#            dfk[var]=dfk[var].astype(float)
+#            if var in kfindstr:
+#                #pos = findstrg.index(var)
+#                dfk[var]=dfk[var]/kfindstr_f[kfindstr.index(var)]
 
     return df, dfk
+
+def _prepare_dataframe(df,
+                       findstr_list=None,
+                       findstr_factors=None,
+                       invalid_fill=None,
+                       lat_col='Latitude',
+                       lat_nw='NorthSouth',
+                       lon_col='Longitude',
+                       lon_ew='EastWest',
+                       time_format='%H%M%S',
+                       skip_cols=('NorthSouth', 'EastWest')):
+    """
+    Prepares dataframe columns:
+     - Converts 'Zeit' to datetime, applies timezone detection and computes 'Seconds'
+     - Converts other columns to numeric (coerce) and optionally fills invalids
+     - If a column appears in findstr_list, divides column by corresponding factor
+     - Skips columns listed in skip_cols from conversion to numeric
+    Returns the modified dataframe (in place).
+    """
+    if df is None or df.empty:
+        return df
+
+    # Columns to skip conversion into numeric
+    skip = set(skip_cols)
+
+    # Correct Latitude and Longitude based on N/S and E/W markers
+    if lat_col in df.columns and lat_nw in df.columns:
+        lat_series = df[lat_col].astype(float)
+        lat_series.loc[lat_series[df[lat_nw]=='S'].dropna().index] = -abs(lat_series)
+        df[lat_col] = lat_series
+
+    if lon_col in df.columns and lon_ew in df.columns:
+        lon_series = df[lon_col].astype(float)
+        lon_series.loc[lon_series[df[lon_ew]=='W'].dropna().index] = -abs(lon_series)
+        df[lon_col] = lon_series
+
+    for col in df.columns:
+        if col == 'Zeit':
+            df['Zeit'] = pd.to_datetime(df['Zeit'], format=time_format, errors='coerce')
+            tzname = _detect_timezone_for_df(df, lat_col=lat_col, lon_col=lon_col)
+            if tzname is None:
+                df['Zeit'] = df['Zeit'].dt.tz_localize('utc')
+            else:
+                try:
+                    df['Zeit'] = df['Zeit'].dt.tz_localize('utc').dt.tz_convert(tzname)
+                except Exception:
+                    df['Zeit'] = df['Zeit'].dt.tz_localize('utc')
+            df_time = df['Zeit']
+            df['Seconds'] = ((df_time.dt.hour) * 60 + df_time.dt.minute) * 60 + df_time.dt.second
+
+        elif col in skip:
+            # keep as-is
+            continue
+        else:
+            s = pd.to_numeric(df[col], errors='coerce')
+            if invalid_fill is not None:
+                s = s.fillna(invalid_fill)
+            df[col] = s
+            if findstr_list and findstr_factors and col in findstr_list:
+                idx = findstr_list.index(col)
+                try:
+                    factor = findstr_factors[idx]
+                    df[col] = df[col] / factor
+                except Exception:
+                    # if factor mis-specified / missing - ignore silently
+                    pass
+
+    return df
 
 def CalcTrack (df):
     # Breitengrad
