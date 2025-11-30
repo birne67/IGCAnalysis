@@ -26,10 +26,10 @@ python -m build
 - Pflege die Version an einer einzigen Stelle (siehe Kapitel "Single source of truth" weiter unten).
 ```bash
 cd MyPythonLibrary/IGCAnalysis
-python3 tools/set_version.py 1.4.0
+python3 tools/set_version.py 1.4.1
 git add .
-git commit -m "Version 1.4"
-git tag v1.4
+git commit -m "Version 1.4.1"
+git tag v1.4.1
 git push origin main --follow-tags
 ```
 
