@@ -954,8 +954,8 @@ def AsymPlot (AnzRK,AnzLK,df,df_Kr,filename,hardware, software, FlapSensor, l_pl
         a = df.loc[(df['Seconds']>=a)].index[0]
         b = np.int32(df_Kr['Endzeit'][j])
         b = df.loc[(df['Seconds']<=b)].index[-1]
-        dH_Netto = np.append(dH_Netto, np.trapz(df['NET'][a:b], x = df['Seconds'][a:b]))
-        dH_TEK   = np.append(dH_TEK, np.trapz(df['VAT'][a:b], x = df['Seconds'][a:b]))
+        dH_Netto = np.append(dH_Netto, np.trapezoid(df['NET'][a:b], x = df['Seconds'][a:b]))
+        dH_TEK   = np.append(dH_TEK, np.trapezoid(df['VAT'][a:b], x = df['Seconds'][a:b]))
         AOR_ave  = np.append(AOR_ave, np.average(df['AOR'][a:b]))
         ENL      = np.append(ENL, np.average(df['ENL'][a:b]))
 

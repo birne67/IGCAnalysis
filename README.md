@@ -207,3 +207,7 @@ Tipps & Anpassungen
 
 Empfehlung
 - Teste zuerst mit einem kleinen Tag (z. B. `v1.3.0`) und prüfe die Action‑Logs; wenn alles sauber läuft, ist der Release‑Workflow zuverlässig und erfordert kaum Wartung.
+
+# Installieren
+cd /home/helmut/Python/IGCAnalysis/.venv_kubuntu/MyPythonLibrary/IGCAnalysis
+/home/helmut/Python/IGCAnalysis/.venv_kubuntu/bin/pip install -e .
