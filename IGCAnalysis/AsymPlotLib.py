@@ -162,6 +162,7 @@ def readfile(filename):
     findstr_d['EastWest']   = []
     findstr_d['Press Alt.'] = []
     findstr_d['GNS Alt.']   = []
+    findstr_d['Valid']       = []     # Validity: 'A' = 3D-Fix, 'V' = kein GPS-Fix
 
     findstr.append('Zeit')
     findstr_u.append ('hh:mm:ss')
@@ -191,6 +192,10 @@ def readfile(filename):
     findstr_u.append ('m')
     findstr_f.append(1)
 
+    findstr.append('Valid')
+    findstr_u.append ('-')
+    findstr_f.append(1)
+
     IRecord['Zeit'+'_anf']        = 2
     IRecord['Zeit'+'_end']        = 7
     IRecord['Latitude'+'_anf']    = 8
@@ -205,6 +210,8 @@ def readfile(filename):
     IRecord['Press Alt.'+'_end']  = 30
     IRecord['GNS Alt.'+'_anf']    = 31
     IRecord['GNS Alt.'+'_end']    = 35
+    IRecord['Valid'+'_anf']       = 25   # Byte 25 im B-Record: 'A'=3D-Fix, 'V'=kein Fix
+    IRecord['Valid'+'_end']       = 25
 
     JRecord     = {}
     kfindstr    = []
@@ -228,7 +235,7 @@ def readfile(filename):
         filename=filename.filename
 
 
-    with open( filename ) as fn:
+    with open( filename, encoding='latin-1' ) as fn:
         ln = fn.readline()
 
         while ln:
@@ -389,15 +396,51 @@ def mpdf (findstrings, kfindstrings):
     kfindstr_d = kfindstrings['kfindstr_d']
     
     # Erzeugen eines Pandas DataFrame
+    min_len = min(len(findstr_d[var]) for var in findstr_d.keys())
+    for var in findstr_d.keys():
+        findstr_d[var] = findstr_d[var][:min_len]
+
+    kmin_len = min(len(kfindstr_d[var]) for var in kfindstr_d.keys()) if kfindstr_d else 0
+    for var in kfindstr_d.keys():
+        kfindstr_d[var] = kfindstr_d[var][:kmin_len]
+
     df  = pd.DataFrame.from_dict(findstr_d, orient='columns')
     dfk = pd.DataFrame.from_dict(kfindstr_d, orient='columns')
-    
+
+    # --- GPS-Ausfälle auf Rohdaten entfernen (vor Typ-Konvertierung) ---
+    # 1) B-Records ohne gültigen GPS-Fix (Validity-Byte = 'V')
+    if 'Valid' in df.columns:
+        n_invalid = (df['Valid'] != 'A').sum()
+        if n_invalid > 0:
+            print(f'Entferne {n_invalid} B-Records ohne GPS-Fix (Valid != A)')
+            df = df[df['Valid'] == 'A'].reset_index(drop=True)
+
+    # 2) B-Records mit schlechter GPS-Genauigkeit (FXA > 50)
+    #    pd.to_numeric auf Roh-Strings; nicht-parsierbare Werte -> 9999
+    if 'FXA' in df.columns:
+        fxa_num = pd.to_numeric(df['FXA'], errors='coerce').fillna(9999)
+        n_fxa = int((fxa_num > 50).sum())
+        if n_fxa > 0:
+            print(f'Entferne {n_fxa} B-Records mit FXA > 50')
+            df = df[fxa_num <= 50].reset_index(drop=True)
+
     lst  = ['NorthSouth', 'EastWest']
     # process main df (use original behavior: invalid values -> 1000)
     df = _prepare_dataframe(df, findstr_list=findstr, findstr_factors=findstr_f, invalid_fill=1000.0)
 
     # process dfk (keep invalids as NaN; original used astype(float))
     dfk = _prepare_dataframe(dfk, findstr_list=kfindstr, findstr_factors=kfindstr_f, invalid_fill=None)
+
+    # 3) Zeitsprünge entfernen — erst nach _prepare_dataframe, da Seconds dort berechnet wird.
+    #    cummax() statt diff(): entfernt auch alle Folgezeilen nach einem Rücksprung,
+    #    solange deren Zeit nicht wieder den bisherigen Maximalwert überschreitet.
+    if 'Seconds' in df.columns:
+        mask = df['Seconds'] >= df['Seconds'].cummax()
+        n_bad = int((~mask).sum())
+        if n_bad > 0:
+            print(f'Entferne {n_bad} B-Records mit negativem Zeitsprung:')
+            print(df.loc[~mask, ['Zeit', 'Seconds']])
+            df = df[mask].reset_index(drop=True)
 
 
 #    # Wandeln der DataFrame Daten-Typen in float
@@ -460,7 +503,7 @@ def _prepare_dataframe(df,
                        lon_col='Longitude',
                        lon_ew='EastWest',
                        time_format='%H%M%S',
-                       skip_cols=('NorthSouth', 'EastWest')):
+                       skip_cols=('NorthSouth', 'EastWest', 'Valid')):
     """
     Prepares dataframe columns:
      - Converts 'Zeit' to datetime, applies timezone detection and computes 'Seconds'
